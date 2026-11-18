@@ -87,7 +87,7 @@ main{padding:26px 22px 60px;max-width:1180px;width:100%;margin:0 auto;display:fl
 
 /* ---------- Menú ---------- */
 .page-head{display:flex;flex-direction:column;gap:4px}
-.page-head .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.11em;color:var(--ink-3);font-weight:600}
+.page-head .eyebrow{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);font-weight:700}
 .page-head h2{font-size:30px;font-weight:700}
 .page-head p{margin:0;color:var(--ink-2);max-width:62ch}
 .datebar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;background:var(--paper);border:1px solid var(--line);
@@ -98,10 +98,11 @@ main{padding:26px 22px 60px;max-width:1180px;width:100%;margin:0 auto;display:fl
 .datechip{display:inline-flex;align-items:center;gap:7px;background:var(--accent-soft);color:var(--accent);
   border-radius:999px;padding:3px 11px;font-size:12px;font-weight:600;font-family:var(--mono)}
 .menu{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
-#maqGrid{display:flex;flex-direction:column;gap:20px}
-.secttl{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
-.secttl h3{font-family:var(--disp);font-size:13px;text-transform:uppercase;letter-spacing:.11em;color:var(--accent)}
-.secttl span{font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+#maqGrid{display:flex;flex-direction:column;gap:30px}
+.secttl{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding-bottom:10px;border-bottom:3px solid var(--accent)}
+.secttl h3{font-family:var(--disp);font-size:30px;line-height:1.08;text-transform:uppercase;letter-spacing:.03em;color:var(--accent)}
+.secttl span{font-size:13px;color:var(--ink-3);font-family:var(--mono)}
+@media(max-width:560px){ .secttl h3{font-size:24px} }
 .mod{display:flex;gap:14px;align-items:flex-start;text-align:left;padding:18px;background:var(--paper);
   border:1px solid var(--line);border-radius:12px;cursor:pointer;transition:border-color .12s, transform .12s}
 .mod:hover{border-color:var(--accent);transform:translateY(-2px)}
@@ -329,12 +330,14 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     </div>
     <div class="menu" id="menuGrid"></div>
 
-    <div class="page-head" style="margin-top:8px">
-      <span class="eyebrow">Historial</span>
-      <h2 style="font-size:22px">Días anteriores</h2>
-      <p>Entra a un registro para revisar sus días anteriores por separado.</p>
+    <div id="zonaHist">
+      <div class="page-head" style="margin-top:8px">
+        <span class="eyebrow">Historial</span>
+        <h2 style="font-size:22px">Registros guardados</h2>
+        <p>Entra a un registro para revisar su historial por separado.</p>
+      </div>
+      <div class="menu" id="histGrid"></div>
     </div>
-    <div class="menu" id="histGrid"></div>
   </main>
 
   <!-- Historial de un registro -->
@@ -347,7 +350,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     </div>
     <div class="panel" id="histPanel">
       <div class="toolbar">
-        <div class="field"><label for="hRango">Días anteriores</label>
+        <div class="field"><label for="hRango">Período</label>
           <select id="hRango">
             <option value="7">Últimos 7 días</option>
             <option value="15">Últimos 15 días</option>
@@ -360,7 +363,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
         <div class="field"><label>&nbsp;</label><button class="btn btn-primary" id="btnInforme" type="button">Descargar informe</button></div>
       </div>
       <div id="histBody"></div>
-      <div class="empty hidden" id="histEmpty"><strong>Sin registros anteriores</strong>Aquí aparecerán los datos de los días previos al actual.</div>
+      <div class="empty hidden" id="histEmpty"><strong>Sin registros</strong>Aquí aparecerán los registros guardados, incluidos los de hoy.</div>
     </div>
   </main>
 
@@ -886,6 +889,8 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     }).join("");
     $("sedeSel").value = mis[0];
     $("btnEmpresa").classList.toggle("hidden", !esGeneral());
+    /* el historial queda solo para supervisores y supervisores generales */
+    $("zonaHist").classList.toggle("hidden", !puedeEditar());
     aplicaSede(mis[0]);
     verPantalla(null); $("login").classList.add("hidden"); $("app").classList.remove("hidden");
     cargarTodo();
@@ -1011,7 +1016,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     var hoy=today(), lim=Number($("hRango").value||7), corte=lim>0?haceDias(lim):null, mapa={};
     (mod ? [mod] : ORDER).forEach(function(m){
       data[m].forEach(function(r){
-        if(!r.fecha || r.fecha>=hoy) return;
+        if(!r.fecha) return;                 /* el día de hoy también entra al historial */
         if(corte && r.fecha<corte) return;
         mapa[r.fecha]=mapa[r.fecha]||{};
         (mapa[r.fecha][m]=mapa[r.fecha][m]||[]).push(r);
@@ -1046,14 +1051,14 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     var hoy=today();
     $("histGrid").innerHTML = ORDER.map(function(m){
       var d=MODS[m];
-      var previos=data[m].filter(function(r){ return r.fecha && r.fecha<hoy; });
+      var previos=data[m].filter(function(r){ return !!r.fecha; });
       var dias={}; previos.forEach(function(r){ dias[r.fecha]=1; });
       var nd=Object.keys(dias).length;
       return '<button class="mod" type="button" data-hist="'+m+'">'+
         '<span class="ic"><svg><use href="#'+d.icon+'"></use></svg></span>'+
         '<span><h3>'+esc(d.short)+'</h3><p>'+(previos.length
           ? "Últimos registros: "+esc(previos[0].fecha)
-          : "Sin registros de días anteriores")+'</p>'+
+          : "Sin registros guardados")+'</p>'+
         '<span class="count">'+previos.length+(previos.length===1?" registro":" registros")+' · '+nd+(nd===1?" día":" días")+'</span>'+
         '</span></button>';
     }).join("");
@@ -1064,8 +1069,9 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
   $("btnVolverHist").addEventListener("click", showMenu);
 
   function openHist(m){
+    if(!puedeEditar()){ toast("El historial lo revisa el supervisor"); return; }
     cur=null; maq=null; showOnly("viewHist"); histMod=m;
-    $("histEyebrow").textContent="Historial · días anteriores";
+    $("histEyebrow").textContent="Historial de registros";
     $("histTitle").textContent=MODS[m].title;
     $("histDesc").textContent=MODS[m].desc;
     renderHistDetalle(); pushNav();
@@ -1093,7 +1099,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     var m=histMod, dias=diasPrevios(m), total=0;
     dias.forEach(function(d){ if(d.mods[m]) total+=d.mods[m].length; });
     $("hResumen").textContent = dias.length
-      ? total+" registro"+(total===1?"":"s")+" en "+dias.length+" día"+(dias.length===1?"":"s")+" anterior"+(dias.length===1?"":"es")
+      ? total+" registro"+(total===1?"":"s")+" en "+dias.length+" día"+(dias.length===1?"":"s")
       : "Sin registros en el rango elegido";
     $("histEmpty").classList.toggle("hidden", dias.length>0);
     $("histBody").innerHTML = dias.map(function(d){
@@ -1146,7 +1152,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
       (logo ? '<img src="'+logo+'" alt="" style="height:58px;width:58px;float:right">' : '')+
       '<h1>'+esc(empresa)+(direccion?' · '+esc(direccion):'')+'</h1>'+
       '<div class="sub" style="margin-bottom:4px">'+esc(mod?MODS[mod].title:"Informe de registros")+'</div>'+
-      '<div class="sub">Usuario: '+esc(nameOf(user))+' · Generado el '+esc(today())+' · Días anteriores al '+esc(today())+'</div>'+
+      '<div class="sub">Usuario: '+esc(nameOf(user))+' · Generado el '+esc(today())+' · Historial hasta el '+esc(today())+'</div>'+
       body+'</body></html>';
   }
   $("btnInforme").addEventListener("click", function(){
