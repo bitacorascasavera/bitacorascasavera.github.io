@@ -99,6 +99,15 @@ main{padding:26px 22px 60px;max-width:1180px;width:100%;margin:0 auto;display:fl
   border-radius:999px;padding:3px 11px;font-size:12px;font-weight:600;font-family:var(--mono)}
 .menu{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
 #maqGrid{display:flex;flex-direction:column;gap:30px}
+.rondabar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 18px}
+.rondabar .rd{font-size:14px;padding:6px 12px}
+.rondabar .rdhint{font-size:12px;color:var(--ink-3);font-family:var(--mono)}
+.rondas{display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 2px}
+.rd{display:inline-flex;align-items:center;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;
+  border:1px solid var(--line);background:var(--paper-2);color:var(--ink-2);white-space:nowrap}
+.rd.ok{border-color:var(--ok);color:var(--ok);background:transparent}
+.rd.pend{border-color:var(--warn);color:var(--warn);background:transparent}
+.rd.fuera{border-color:var(--ink-3);color:var(--ink-3)}
 .secttl{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 14px;padding-bottom:10px;border-bottom:3px solid var(--accent)}
 .secttl h3{font-family:var(--disp);font-size:30px;line-height:1.08;text-transform:uppercase;letter-spacing:.03em;color:var(--accent)}
 .secttl span{font-size:13px;color:var(--ink-3);font-family:var(--mono)}
@@ -375,6 +384,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
       <h2 class="caps">Registro de temperaturas</h2>
       <p>Selecciona la máquina a la que vas a registrar la temperatura.</p>
     </div>
+    <div class="rondabar" id="rondaResumen"></div>
     <div class="menu" id="maqGrid"></div>
   </main>
 
@@ -724,6 +734,38 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
   var esc=function(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); };
   var today=function(){ var d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10); };
   var nowHM=function(){ var d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+
+  /* ---------- rondas de temperatura ----------
+     Mañana: 08:00 a 13:00 · Tarde: 17:00 a 21:00
+     En Licores, viernes y sábado la ronda de la tarde se extiende hasta medianoche. */
+  var RONDA_MANANA=["08:00","13:00"], RONDA_TARDE_INI="17:00";
+  function finDeTarde(f){
+    var dia = new Date((f||today())+"T12:00:00").getDay();   /* 5 viernes · 6 sábado */
+    return (cuenta==="licores" && (dia===5 || dia===6)) ? "23:59" : "21:00";
+  }
+  function rondaDe(r){
+    var h = (r && r.hora) || "";
+    if(!h) return "fuera";
+    if(h>=RONDA_MANANA[0] && h<=RONDA_MANANA[1]) return "manana";
+    if(h>=RONDA_TARDE_INI && h<=finDeTarde(r.fecha)) return "tarde";
+    return "fuera";
+  }
+  function rondasDe(m, f){
+    var o={manana:null, tarde:null, fuera:0};
+    rowsDe(m).forEach(function(r){
+      if((r.fecha||"")!==f) return;
+      var k=rondaDe(r);
+      if(k==="fuera"){ o.fuera++; return; }
+      if(!o[k] || (r.hora||"")>(o[k].hora||"")) o[k]=r;
+    });
+    return o;
+  }
+  function rondaAhora(){
+    var h=nowHM();
+    if(h>=RONDA_MANANA[0] && h<=RONDA_MANANA[1]) return "manana";
+    if(h>=RONDA_TARDE_INI && h<=finDeTarde(today())) return "tarde";
+    return null;
+  }
   var store={ get:function(k){try{return sessionStorage.getItem(k);}catch(e){return null;}},
               set:function(k,v){try{sessionStorage.setItem(k,v);}catch(e){}},
               del:function(k){try{sessionStorage.removeItem(k);}catch(e){}} };
@@ -1198,19 +1240,39 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
   }
 
   function renderMaqs(){
+    var f = wDate || today(), tm=0, tt=0, tot=0;
+    MODS.temperatura.groups.forEach(function(sec){
+      sec.ms.forEach(function(x){
+        var o=rondasDe(sec.g+" · "+x, f); tot++;
+        if(o.manana) tm++; if(o.tarde) tt++;
+      });
+    });
+    $("rondaResumen").innerHTML =
+      '<span class="rd'+(tm>=tot?" ok":"")+'">Mañana '+tm+' de '+tot+'</span>'+
+      '<span class="rd'+(tt>=tot?" ok":"")+'">Tarde '+tt+' de '+tot+'</span>'+
+      '<span class="rdhint">Mañana '+RONDA_MANANA[0]+' a '+RONDA_MANANA[1]+' · Tarde '+RONDA_TARDE_INI+' a '+finDeTarde(f)+'</span>';
+
     $("maqGrid").innerHTML = MODS.temperatura.groups.map(function(sec){
       var claves=sec.ms.map(function(m){ return sec.g+" · "+m; });
-      var conReg=claves.filter(function(k){ return rowsDe(k).length; }).length;
+      var cm=0, ct=0;
+      claves.forEach(function(k){ var o=rondasDe(k,f); if(o.manana) cm++; if(o.tarde) ct++; });
       return '<div class="sec"><div class="secttl"><h3>'+esc(sec.g)+'</h3>'+
-        '<span>'+sec.ms.length+(sec.ms.length===1?' máquina · ':' máquinas · ')+conReg+' con registros</span></div>'+
+        '<span>'+sec.ms.length+(sec.ms.length===1?' máquina · ':' máquinas · ')+
+        'mañana '+cm+'/'+sec.ms.length+' · tarde '+ct+'/'+sec.ms.length+'</span></div>'+
         '<div class="menu">'+claves.map(tarjetaMaq).join("")+'</div></div>';
     }).join("");
   }
   function tarjetaMaq(m){
-      var l=rowsDe(m), ult=l[0];
+      var f = wDate || today();
+      var l=rowsDe(m), ult=l[0], o=rondasDe(m,f);
+      var marca=function(txt, r){
+        return '<span class="rd'+(r?" ok":" pend")+'">'+txt+(r? " ✓ "+esc(r.hora||"") : " pendiente")+'</span>';
+      };
       return '<button class="mod" type="button" data-maq="'+esc(m)+'">'+
         '<span class="ic"><svg><use href="#i-temp"></use></svg></span>'+
         '<span><h3>'+esc(cortoDe(m))+'</h3>'+
+        '<span class="rondas">'+marca("Mañana", o.manana)+marca("Tarde", o.tarde)+
+          (o.fuera? '<span class="rd fuera">'+o.fuera+' fuera de horario</span>' : '')+'</span>'+
         '<p>'+(ult? "Última: "+esc(ult.fecha||"")+" · "+esc(ult.hora||"") : "Sin mediciones registradas")+'</p>'+
         '<span class="big'+(ult? (evalTemp(m,ult.temperatura)==="ok"?" t-ok":evalTemp(m,ult.temperatura)==="bad"?" t-bad":(ult.estado==="No conforme"?" t-bad":"")) : "")+'">'+
           (ult&&ult.temperatura!==""&&ult.temperatura!=null? esc(Number(ult.temperatura).toFixed(1))+" °C" : "—")+'</span>'+
@@ -1279,12 +1341,14 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     delete drafts[actual];
     $("qTemp").value="";
 
+    var fueraH = rondaDe({hora:$("qHora").value, fecha:$("qFecha").value})==="fuera";
+    var aviso = ev==="bad" ? "⚠ FUERA DE RANGO · " : (fueraH ? "⏰ Fuera del horario de ronda · " : "");
     var maqs=MODS.temperatura.machines, i=maqs.indexOf(actual), sig=maqs[i+1];
     if(sig){
-      toast((ev==="bad" ? "⚠ FUERA DE RANGO · " : "")+actual+": "+t.toFixed(1)+" °C guardada · sigue "+(grupoDe(sig)===grupoDe(actual)?cortoDe(sig):sig));
+      toast(aviso+actual+": "+t.toFixed(1)+" °C guardada · sigue "+(grupoDe(sig)===grupoDe(actual)?cortoDe(sig):sig));
       openMaq(sig);
     } else {
-      toast((ev==="bad" ? "⚠ FUERA DE RANGO · " : "Ronda completa · ")+actual+": "+t.toFixed(1)+" °C guardada");
+      toast((aviso || "Ronda completa · ")+actual+": "+t.toFixed(1)+" °C guardada");
       showMaqs();
     }
   });
@@ -1327,12 +1391,16 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
   function renderZones(){
     var f=$("lFecha").value;
     $("zoneGrid").innerHTML = MODS.limpieza.zones.map(function(z){
-      var hecha = data.limpieza.some(function(r){ return r.area===z && r.fecha===f; });
+      /* la zona queda limpia después de guardar: lo ya hecho se informa aparte, sin marcarla */
+      var previas = data.limpieza.filter(function(r){ return r.area===z && r.fecha===f; });
+      var ult = previas.sort(function(a,b){ return (b.hora||"").localeCompare(a.hora||""); })[0];
       var on = !!zonasSel[z];
-      return '<button type="button" class="zone'+(on?" on":"")+(hecha?" done":"")+'" data-zone="'+esc(z)+'">'+
+      return '<button type="button" class="zone'+(on?" on":"")+'" data-zone="'+esc(z)+'">'+
         '<span class="box"><svg><use href="#i-check"></use></svg></span>'+
         '<span><span class="zn">'+esc(z)+'</span>'+
-        '<span class="zs">'+(on?"Seleccionada":(hecha?"✓ Ya registrada en esta fecha":"Sin registrar en esta fecha"))+'</span></span></button>';
+        '<span class="zs">'+(on ? "Seleccionada"
+          : (ult ? previas.length+(previas.length===1?" limpieza hoy · ":" limpiezas hoy · ")+esc(ult.hora||"")
+                 : "Sin registrar en esta fecha"))+'</span></span></button>';
     }).join("");
     var n=Object.keys(zonasSel).length;
     $("zoneCount").textContent = n===0 ? "Ninguna zona seleccionada" : (n===1?"1 zona seleccionada":n+" zonas seleccionadas");
