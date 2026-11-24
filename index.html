@@ -736,13 +736,9 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
   var nowHM=function(){ var d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
 
   /* ---------- rondas de temperatura ----------
-     Mañana: 08:00 a 13:00 · Tarde: 17:00 a 21:00
-     En Licores, viernes y sábado la ronda de la tarde se extiende hasta medianoche. */
-  var RONDA_MANANA=["08:00","13:00"], RONDA_TARDE_INI="17:00";
-  function finDeTarde(f){
-    var dia = new Date((f||today())+"T12:00:00").getDay();   /* 5 viernes · 6 sábado */
-    return (cuenta==="licores" && (dia===5 || dia===6)) ? "23:59" : "21:00";
-  }
+     Mañana: todo lo registrado antes de las 12:00 · Tarde: desde las 12:00 en adelante. */
+  var RONDA_MANANA=["00:00","11:59"], RONDA_TARDE_INI="12:00";
+  function finDeTarde(){ return "23:59"; }
   function rondaDe(r){
     var h = (r && r.hora) || "";
     if(!h) return "fuera";
@@ -1119,6 +1115,54 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     renderHistDetalle(); pushNav();
   }
 
+  /* ---------- temperaturas del historial, separadas por ronda ---------- */
+  function tempPorMaquina(filas){
+    var orden=MODS.temperatura.machines;
+    var pos=function(k){ var i=orden.indexOf(k); return i<0 ? 999 : i; };
+    var mapa={};
+    filas.forEach(function(r){
+      var k=r.equipo||"—";
+      if(!mapa[k]) mapa[k]={maq:k, manana:[], tarde:[], fuera:[]};
+      var ronda=rondaDe(r);
+      mapa[k][ronda==="manana"?"manana":ronda==="tarde"?"tarde":"fuera"].push(r);
+    });
+    return Object.keys(mapa).sort(function(a,b){ return pos(a)-pos(b) || a.localeCompare(b); })
+      .map(function(k){
+        var o=mapa[k];
+        ["manana","tarde","fuera"].forEach(function(p){
+          o[p].sort(function(a,b){ return (a.hora||"").localeCompare(b.hora||""); });
+        });
+        return o;
+      });
+  }
+  function celdaRonda(maqk, lista, est){
+    if(!lista.length) return est ? '<td class="num"><span class="muted">—</span></td>' : '<td><span style="color:#999">—</span></td>';
+    return '<td class="num">'+lista.map(function(r){
+      var v=(r.temperatura===""||r.temperatura==null) ? "—" : Number(r.temperatura).toFixed(1)+" °C";
+      var ev=evalTemp(maqk, r.temperatura);
+      if(est) return '<span class="'+(ev==="ok"?"t-ok":ev==="bad"?"t-bad":"")+'">'+esc(v)+'</span> <span class="muted">'+esc(r.hora||"")+'</span>';
+      return '<span'+(ev==="bad"?' style="color:#a93b31;font-weight:700"':ev==="ok"?' style="color:#0f6b52"':'')+'>'+esc(v)+'</span> '+esc(r.hora||"")+(ev==="bad"?" (fuera de rango)":"");
+    }).join(est?'<br>':' · ')+'</td>';
+  }
+  function tempTablaHTML(filas, est){
+    var grupos=tempPorMaquina(filas);
+    var hayFuera=grupos.some(function(o){ return o.fuera.length; });
+    var th=function(t){ return '<th>'+t+'</th>'; };
+    var cuerpo=grupos.map(function(o){
+      var resp={};
+      o.manana.concat(o.tarde, o.fuera).forEach(function(r){ if(r.responsable) resp[r.responsable]=1; });
+      return '<tr><td>'+esc(o.maq)+'</td>'+
+        celdaRonda(o.maq, o.manana, est)+
+        celdaRonda(o.maq, o.tarde, est)+
+        (hayFuera ? celdaRonda(o.maq, o.fuera, est) : '')+
+        '<td>'+esc(Object.keys(resp).join(", ")||"—")+'</td></tr>';
+    }).join("");
+    var cab='<tr>'+th("Máquina")+th("Ronda mañana")+th("Ronda tarde")+(hayFuera?th("Fuera de horario"):"")+th("Responsable")+'</tr>';
+    return est
+      ? '<div class="dayfull"><div class="tablewrap"><table class="minihist"><thead>'+cab+'</thead><tbody>'+cuerpo+'</tbody></table></div></div>'
+      : '<table><thead>'+cab+'</thead><tbody>'+cuerpo+'</tbody></table>';
+  }
+
   /* historial en tabla para los registros de cámaras (incluye vencimiento) */
   function histTablaHTML(m, filas){
     var d=MODS[m], cols=d.cols.filter(function(c){ return c!=="fecha"; });
@@ -1147,6 +1191,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     $("histBody").innerHTML = dias.map(function(d){
       var filas=d.mods[m]||[], n=filas.length;
       var cuerpo = MODS[m].hoja ? histTablaHTML(m, filas)
+        : m==="temperatura" ? tempTablaHTML(filas, true)
         : '<div class="daygrid"><div class="dayblock"><ul>'+
           lineas(m, filas).map(function(x){
             return '<li><b>'+esc(x.l)+'</b><span class="val'+(x.c==="ok"?" t-ok":x.c==="bad"?" t-bad":"")+'">'+esc(x.v)+'</span><span class="who">'+esc(x.w)+'</span></li>';
@@ -1185,6 +1230,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
               }).join("")+'<td>'+esc(r.hora||"—")+'</td><td>'+esc(r.responsable||"—")+'</td></tr>';
             }).join("")+'</tbody></table>';
         }
+        if(m==="temperatura") return '<h3>'+esc(MODS[m].short)+'</h3>'+tempTablaHTML(d.mods[m], false);
         return '<h3>'+esc(MODS[m].short)+'</h3><table><thead><tr><th>Detalle</th><th>Dato</th><th>Hora / responsable</th></tr></thead><tbody>'+
           lineas(m,d.mods[m]).map(function(x){ return '<tr><td>'+esc(x.l)+'</td><td'+(x.c==="bad"?' style="color:#a93b31;font-weight:700"':x.c==="ok"?' style="color:#0f6b52"':'')+'>'+esc(x.v)+(x.c==="bad"?' (fuera de rango)':'')+'</td><td>'+esc(x.w)+'</td></tr>'; }).join("")+
           '</tbody></table>';
@@ -1250,7 +1296,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     $("rondaResumen").innerHTML =
       '<span class="rd'+(tm>=tot?" ok":"")+'">Mañana '+tm+' de '+tot+'</span>'+
       '<span class="rd'+(tt>=tot?" ok":"")+'">Tarde '+tt+' de '+tot+'</span>'+
-      '<span class="rdhint">Mañana '+RONDA_MANANA[0]+' a '+RONDA_MANANA[1]+' · Tarde '+RONDA_TARDE_INI+' a '+finDeTarde(f)+'</span>';
+      '<span class="rdhint">Mañana: antes de las 12:00 · Tarde: desde las 12:00</span>';
 
     $("maqGrid").innerHTML = MODS.temperatura.groups.map(function(sec){
       var claves=sec.ms.map(function(m){ return sec.g+" · "+m; });
