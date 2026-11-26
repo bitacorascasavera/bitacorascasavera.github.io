@@ -1372,7 +1372,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
         '<td class="right num">'+tempHTML(maq, r.temperatura)+'</td>'+
         '<td style="text-transform:capitalize">'+esc(r.responsable||"—")+'</td>'+
         '<td>'+(r.observaciones?esc(r.observaciones):'<span class="muted">—</span>')+'</td>'+
-        '<td class="right">'+(puedeEditar()?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Editar</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
+        '<td class="right">'+(puedeTocar(r.id)?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Editar</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
     }).join("");
     $("maqEmpty").classList.toggle("hidden", l.length>0);
   }
@@ -1504,7 +1504,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
         '<td><span class="pill ok">'+esc(r.area||"—")+'</span></td>'+
         '<td style="text-transform:capitalize">'+esc(r.responsable||"—")+'</td>'+
         '<td>'+(r.observaciones?esc(r.observaciones):'<span class="muted">—</span>')+'</td>'+
-        '<td class="right">'+(puedeEditar()?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Editar</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
+        '<td class="right">'+(puedeTocar(r.id)?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Editar</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
     }).join("");
     $("limpEmpty").classList.toggle("hidden", l.length>0);
   }
@@ -1549,6 +1549,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
       return id;
     }
     var tmp = "tmp" + Date.now() + Math.random().toString(36).slice(2,5);
+    misFilas[tmp] = 1;
     data[m].push(Object.assign({id:tmp}, obj));
     data[m].sort(sortRows);
     pintar(m);
@@ -1563,6 +1564,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
         var nid = res.data && res.data[0] && res.data[0].id;
         if(!nid) return;
         data[m] = data[m].map(function(r){ return r.id===tmp ? Object.assign({}, r, {id:nid}) : r; });
+        misFilas[nid] = 1; delete misFilas[tmp];
         if(focoPend && focoPend.id===tmp) focoPend.id = nid;
         pintar(m);
       });
@@ -1606,6 +1608,10 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
 
   /* ---------- planilla editable (ingreso / salida de cámaras) ---------- */
   var focoPend=null;
+  /* filas creadas por esta persona en esta sesión: puede terminar de llenarlas
+     aunque sea trabajadora; lo que queda bloqueado es corregir registros de antes */
+  var misFilas={};
+  function puedeTocar(id){ return puedeEditar() || !!misFilas[id]; }
   function tipoCel(k, d){
     var f=d.fields.filter(function(x){ return x.k===k; })[0];
     return f ? f.t : "text";
@@ -1614,7 +1620,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     var t=tipoCel(k,d);
     var cls = "cel"+(t==="number"||t==="date"?" num":"");
     var ph = nueva ? (d.collabels&&d.collabels[k]) || LABELS[k] || k : "";
-    var bloqueada = !nueva && !puedeEditar();
+    var bloqueada = !nueva && !puedeTocar(id);
     return '<td><input class="'+cls+'" data-id="'+esc(id)+'" data-k="'+esc(k)+'" type="'+t+'"'+
       (t==="number"?' step="0.01"':'')+(ph?' placeholder="'+esc(ph)+'"':'')+
       (bloqueada?' readonly tabindex="-1"':'')+
@@ -1629,17 +1635,30 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     focoPend=null;
     var html = filas.map(function(r){
       return '<tr>'+d.cols.map(function(c){ return celHTML(d, r.id, c, r[c], false); }).join("")+
-        '<td class="right">'+(puedeEditar()?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Ficha</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
+        '<td class="right">'+(puedeTocar(r.id)?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Ficha</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
     }).join("");
     html += '<tr class="nueva">'+d.cols.map(function(c){
       var v = c==="fecha" ? (wDate||today()) : "";
       return celHTML(d, "nuevo", c, v, true);
     }).join("")+'<td class="right muted" style="font-size:12px">nueva</td></tr>';
-    $("tbody").innerHTML = html;
+    /* el repintado se hace fuera del evento: si se reemplaza el contenido de la tabla
+       mientras el navegador procesa el blur de una celda, lanza error y la planilla se congela */
+    hojaPend = {html:html, foco:foco};
+    if(hojaTimer) clearTimeout(hojaTimer);
+    hojaTimer = setTimeout(aplicarHoja, 0);
+  }
+  var hojaPend=null, hojaTimer=null;
+  function aplicarHoja(){
+    hojaTimer=null;
+    var pend=hojaPend; hojaPend=null;
+    if(!pend) return;
+    try{ $("tbody").innerHTML = pend.html; }
+    catch(e){ hojaPend=pend; hojaTimer=setTimeout(aplicarHoja, 16); return; }
     $("empty").classList.add("hidden");
+    var foco=pend.foco;
     if(foco){
       var el=$("tbody").querySelector('.cel[data-id="'+foco.id+'"][data-k="'+foco.k+'"]');
-      if(el){ el.focus(); if(el.setSelectionRange && el.type==="text"){ var n=el.value.length; try{el.setSelectionRange(n,n);}catch(e){} } }
+      if(el && !el.readOnly){ el.focus(); if(el.setSelectionRange && el.type==="text"){ var n=el.value.length; try{el.setSelectionRange(n,n);}catch(e2){} } }
     }
   }
   function filaValores(id){
@@ -1657,7 +1676,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
     var d=MODS[cur], id=el.getAttribute("data-id"), k=el.getAttribute("data-k");
     var vals=filaValores(id);
     if(id!=="nuevo"){
-      if(!puedeEditar()){ toast("Solo el supervisor puede corregir una fila ya guardada"); cargarTodo(); return; }
+      if(!puedeTocar(id)){ toast("Solo el supervisor puede corregir una fila ya guardada"); cargarTodo(); return; }
       var prev=data[cur].filter(function(r){ return r.id===id; })[0] || {};
       var obj=Object.assign({}, prev, vals); delete obj.id;
       focoPend={id:id, k:k};
@@ -1717,7 +1736,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
         if(c==="fecha"||c==="hora") return '<td class="num">'+(v?esc(v):'<span class="muted">—</span>')+'</td>';
         return '<td>'+(v?esc(v):'<span class="muted">—</span>')+'</td>';
       }).join("");
-      return '<tr>'+cells+'<td class="right">'+(puedeEditar()?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Editar</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
+      return '<tr>'+cells+'<td class="right">'+(puedeTocar(r.id)?'<button class="btn btn-sm" type="button" data-edit="'+esc(r.id)+'">Editar</button>':'<span class="muted" style="font-size:12px">—</span>')+'</td></tr>';
     }).join("");
     $("empty").classList.toggle("hidden", list.length>0);
   }
@@ -1795,7 +1814,7 @@ table.minihist .num{font-family:var(--mono);font-variant-numeric:tabular-nums;wh
   });
 
   function openModal(r){
-    if(r && !puedeEditar()){ toast("Solo el supervisor puede modificar un registro ya guardado"); return; }
+    if(r && !puedeTocar(r.id)){ toast("Solo el supervisor puede modificar un registro ya guardado"); return; }
     var d=MODS[cur];
     editingId = r ? r.id : null;
     $("modalTitle").textContent = (r?"Editar":"Nuevo")+" · "+(maq||d.short);
